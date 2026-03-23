@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "stages": {
+    "resource_finder": {
+      "success": true,
+      "completion_marker": "/workspaces/adversarial-ood-robustnes-73d8-claude/.resource_finder_complete",
+      "outputs": {
+        "literature_review": "/workspaces/adversarial-ood-robustnes-73d8-claude/literature_review.md",
+        "resources_catalog": "/workspaces/adversarial-ood-robustnes-73d8-claude/resources.md",
+        "papers_dir": "/workspaces/adversarial-ood-robustnes-73d8-claude/papers",
+        "datasets_dir": "/workspaces/adversarial-ood-robustnes-73d8-claude/datasets",
+        "code_dir": "/workspaces/adversarial-ood-robustnes-73d8-claude/code"
+      },
+      "log_file": "/workspaces/adversarial-ood-robustnes-73d8-claude/logs/resource_finder_claude.log",
+      "transcript_file": "/workspaces/adversarial-ood-robustnes-73d8-claude/logs/resource_finder_claude_transcript.jsonl",
+      "elapsed_time": 1325.9886620044708
+    },
+    "experiment_runner": {
+      "success": true,
+      "return_code": 0,
+      "elapsed_time": 7645.593742609024,
+      "log_file": "/workspaces/adversarial-ood-robustnes-73d8-claude/logs/execution_claude.log",
+      "transcript_file": "/workspaces/adversarial-ood-robustnes-73d8-claude/logs/execution_claude_transcript.jsonl"
+    }
+  },
+  "work_dir": "/workspaces/adversarial-ood-robustnes-73d8-claude"
+}

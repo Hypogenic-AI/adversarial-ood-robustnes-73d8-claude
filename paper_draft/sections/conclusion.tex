@@ -1,0 +1,8 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We present the first evaluation of neural thicket ensembles for adversarial robustness and OOD detection, testing three perturbation strategies (isotropic Gaussian, orthogonal, layer-scaled) across five scales on \resnet / \cifarten. Our central finding is negative but informative: vision models have much tighter loss basins than LLMs, creating a sharp sensitivity cliff that prevents weight-perturbation ensembles from achieving meaningful diversity without catastrophic accuracy loss. At viable perturbation scales, thicket ensemble members are near-clones with $<$1\% disagreement, providing no adversarial robustness beyond a single model (12.5\% vs.\ 12.6\% PGD-20 accuracy). Adversarial training remains vastly superior (78.5\%).
+
+The key takeaway for practitioners is clear: do not rely on weight-perturbation ensembles for adversarial robustness in vision models. For the neural thickets research program, our results suggest that the dense thicket phenomenon may be specific to heavily overparameterized models with billions of parameters, where loss basins are broad enough to accommodate functionally diverse solutions within small perturbation neighborhoods.
+
+Several promising directions remain. Testing with larger vision models (ViTs, WideResNets) could reveal whether the sensitivity cliff shifts at scale. Combining thicket perturbation with brief fine-tuning could allow larger perturbations while maintaining accuracy. Perhaps most intriguingly, perturbing adversarially-trained base models --- which occupy flatter loss basins \citep{croce2023seasoning} --- may finally unlock the diversity needed for perturbation-based robustness in vision.

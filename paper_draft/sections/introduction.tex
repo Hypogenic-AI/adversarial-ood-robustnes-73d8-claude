@@ -1,0 +1,22 @@
+\section{Introduction}
+\label{sec:intro}
+
+Can we build robust ensembles for free? The recent discovery of \emph{neural thickets} \citep{gan2026neural} suggests a tantalizing possibility: pretrained model weights are surrounded by dense clusters of task-specific expert solutions, reachable via simple random Gaussian perturbations with zero gradient-based training. If these ensembles also resist adversarial attacks and detect out-of-distribution inputs, they would offer an extraordinarily cheap path to reliable AI systems.
+
+Ensemble methods have long been recognized as a practical defense against adversarial examples \citep{pang2019improving} and a natural mechanism for uncertainty quantification \citep{fort2019deep}. The intuition is straightforward: diverse models are unlikely to share the same failure modes, so majority voting or prediction averaging can filter out adversarial perturbations that fool individual members. However, conventional deep ensembles require training multiple models independently --- an expensive proposition that scales linearly with ensemble size.
+
+Neural thickets \citep{gan2026neural} offer a radical alternative. The \randopt algorithm generates $N$ random weight perturbations $\vtheta' = \vtheta + \sigma \cdot \veps$ around pretrained weights $\vtheta$, evaluates each on a validation set, selects the top-$K$ by accuracy, and ensembles their predictions. On LLM reasoning benchmarks, this approach matches reinforcement learning methods at a fraction of the cost. The key insight is that large pretrained models sit within a ``thicket'' of nearby solutions --- a region of weight space dense with functional alternatives.
+
+{\bf But are these alternatives truly diverse?} For thicket ensembles to provide robustness, members must disagree on adversarial or out-of-distribution inputs even when they agree on clean data. This requires functional diversity --- not merely proximity in weight space. Prior work on ensemble diversity for robustness \citep{pang2019improving, zhao2024ensemble} shows that diversity must be explicitly encouraged, as independently trained models often converge to similar decision boundaries. The situation may be even more challenging for thicket ensembles, where members share the same pretrained initialization and differ only by small random perturbations.
+
+We investigate this question by transplanting neural thicket ensembles to the vision domain (\resnet on \cifarten), where adversarial robustness is well-studied and standard attack protocols exist. We test three perturbation strategies --- isotropic Gaussian, orthogonal, and layer-scaled --- across five perturbation scales, and evaluate adversarial robustness under PGD-20 and FGSM attacks as well as OOD detection on SVHN.
+
+Our results reveal a fundamental negative finding: vision models have much tighter loss basins than LLMs, creating a sharp phase transition where perturbation scales large enough for diversity ($\sigma \geq 0.02$) catastrophically destroy model accuracy (94\% $\to$ 28\%). At viable scales ($\sigma \leq 0.001$), ensemble members are near-clones with $<$1\% disagreement, providing no robustness benefit. Thicket ensembles achieve PGD-20 accuracy of 12.5\% --- indistinguishable from a single model --- while adversarial training reaches 78.5\%.
+
+We make the following contributions:
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item We provide the first evaluation of neural thicket ensembles for adversarial robustness and OOD detection, testing three perturbation strategies across five scales.
+    \item We identify a sharp sensitivity cliff in vision models that fundamentally limits weight-perturbation ensembles: no regime exists where both high accuracy and high diversity coexist.
+    \item We demonstrate that adversarial training (78.5\% PGD accuracy) remains vastly superior to any ensemble strategy (12--20\%), and that even deep ensembles with true mode diversity offer only modest robustness gains.
+    \item We provide evidence that the neural thicket phenomenon may be scale-dependent, with implications for when weight-perturbation ensembles can and cannot be expected to work.
+\end{itemize}

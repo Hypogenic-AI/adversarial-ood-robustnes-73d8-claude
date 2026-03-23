@@ -1,0 +1,63 @@
+\section{Methodology}
+\label{sec:method}
+
+We adapt the \randopt framework \citep{gan2026neural} from LLMs to the vision domain, constructing neural thicket ensembles around a pretrained \resnet on \cifarten. We then evaluate these ensembles for adversarial robustness and OOD detection.
+
+\subsection{Problem Setup}
+
+Let $f_{\vtheta}: \gX \to \sR^C$ denote a classifier with parameters $\vtheta \in \sR^d$ mapping inputs $\vx \in \gX$ to logits over $C$ classes. Given a pretrained model $f_{\vtheta^*}$, we construct an ensemble $\{f_{\vtheta_1'}, \ldots, f_{\vtheta_K'}\}$ by perturbing $\vtheta^*$ and selecting the top-$K$ models by validation accuracy:
+\begin{equation}
+    \vtheta_i' = \vtheta^* + \sigma \cdot \veps_i, \quad \veps_i \sim p(\veps),
+    \label{eq:perturbation}
+\end{equation}
+where $\sigma > 0$ controls the perturbation scale and $p(\veps)$ is a perturbation distribution. From a pool of $N = 60$ candidates, we select the $K$ models with highest validation accuracy and ensemble their predictions via average softmax probabilities.
+
+\subsection{Perturbation Strategies}
+
+We test three perturbation distributions $p(\veps)$:
+
+\para{Isotropic Gaussian.} The baseline strategy from \citet{gan2026neural}: $\veps \sim \gN(\vzero, \mI)$. Each parameter receives an independent perturbation drawn from a standard normal distribution, scaled by $\sigma$.
+
+\para{Orthogonal perturbations.} We enforce approximate orthogonality among perturbation directions via Gram-Schmidt orthogonalization. This ensures that ensemble members are maximally spread in weight space, potentially increasing functional diversity.
+
+\para{Layer-scaled perturbations.} We scale the perturbation magnitude per layer proportional to the layer's weight norm:
+\begin{equation}
+    \vtheta_l' = \vtheta_l + \sigma \cdot \frac{\|\vtheta_l\|}{\sqrt{d_l}} \cdot \veps_l, \quad \veps_l \sim \gN(\vzero, \mI),
+    \label{eq:layer_scaled}
+\end{equation}
+where $\vtheta_l$ denotes the parameters of layer $l$ and $d_l$ is their dimensionality. This normalizes the relative perturbation magnitude across layers with different weight scales.
+
+\subsection{Base Model Training}
+
+We train a \resnet adapted for \cifarten (3$\times$3 initial convolution, no max pooling) with approximately 11.2M parameters. Training uses SGD with learning rate 0.1, momentum 0.9, weight decay $5 \times 10^{-4}$, and cosine annealing over 50 epochs. Data augmentation includes random cropping (32$\times$32, padding 4) and random horizontal flips. We use a 45K/5K train/validation split, with the standard 10K test set held out for evaluation. The base model achieves 94.1\% test accuracy.
+
+\subsection{Adversarial Evaluation}
+\label{sec:adv_eval}
+
+We evaluate robustness under two white-box attacks, both with $\ell_\infty$ threat model:
+
+\para{PGD-20.} Projected Gradient Descent \citep{madry2018towards} with $\eps = 8/255$, step size $\alpha = 2/255$, and 20 iterations. For ensembles, the attack optimizes against the average softmax output.
+
+\para{FGSM.} Fast Gradient Sign Method as a single-step baseline with $\eps = 8/255$.
+
+\subsection{OOD Detection}
+\label{sec:ood_eval}
+
+We evaluate OOD detection using \cifarten as the in-distribution dataset and \svhn as the OOD dataset, both normalized with CIFAR-10 statistics. We compute three uncertainty scores:
+
+\para{Maximum Softmax Probability (\msp).} $S_{\text{MSP}}(\vx) = \max_c \bar{p}_c(\vx)$, where $\bar{p}(\vx)$ is the average softmax over ensemble members.
+
+\para{Energy score.} $S_{\text{E}}(\vx) = -\log \sum_c \exp(\bar{z}_c(\vx))$, where $\bar{z}(\vx)$ is the average logit vector.
+
+\para{Mutual Information (\mi).} $\text{MI}(\vx) = H[\bar{p}(\vx)] - \frac{1}{K}\sum_{k=1}^K H[p_k(\vx)]$, measuring ensemble disagreement as the gap between total and average per-member entropy.
+
+We report AUROC and FPR@95 (false positive rate at 95\% true positive rate).
+
+\subsection{Baselines}
+
+We compare against three baselines:
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item \textbf{Single model}: The pretrained \resnet with no perturbation.
+    \item \textbf{Deep ensemble}: 3 independently trained \resnet models with different random seeds, representing true mode diversity.
+    \item \textbf{Adversarial training (\pgdat)}: A \resnet trained with 7-step PGD adversarial training for 30 epochs --- the gold standard for adversarial robustness.
+\end{itemize}

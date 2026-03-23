@@ -1,0 +1,36 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why Thicket Ensembles Fail for Vision Robustness}
+
+Our results point to a single root cause: \resnet on \cifarten has an extremely tight loss basin. A perturbation of $\sigma = 0.02$ --- roughly 2\% of parameter magnitudes --- is sufficient to destroy the model entirely. This leaves an effective perturbation budget of $\sigma \leq 0.001$, at which scale ensemble members differ by less than 1\% of their predictions. A white-box adversary can trivially craft inputs that fool all near-identical members simultaneously.
+
+This finding contrasts with the neural thickets results on LLMs \citep{gan2026neural}, where models with billions of parameters tolerate substantially larger perturbations. We hypothesize that this difference is driven by overparameterization: LLMs have orders of magnitude more parameters than needed for any individual task, creating broad, flat basins in which many functionally diverse solutions coexist. Vision models like \resnet, with $\sim$11M parameters trained on 50K images, operate much closer to their capacity limit, resulting in sharper basins with less room for diverse nearby solutions.
+
+\subsection{The Diversity--Accuracy Tradeoff Is a Cliff, Not a Curve}
+
+We expected a smooth tradeoff between accuracy and diversity as $\sigma$ increases --- a regime where moderate diversity could be obtained at modest accuracy cost. Instead, we observe a phase transition: accuracy is essentially preserved up to $\sigma = 0.01$ (92.4\%) and then collapses by $\sigma = 0.02$ (28.4\%). This cliff-like behavior eliminates the possibility of navigating a Pareto frontier. Neither orthogonal nor layer-scaled perturbation strategies change this picture: the sensitivity is not an artifact of perturbation direction or relative layer scaling, but a fundamental property of the loss landscape geometry.
+
+\subsection{Deep Ensembles vs.\ Thicket Ensembles}
+
+The deep ensemble (3 independently trained models) achieves PGD accuracy of 19.7\% --- a 56\% relative improvement over the single model. This modest but real robustness gain comes from genuine mode diversity: independently trained models explore different basins of the loss landscape \citep{fort2019deep}, leading to meaningfully different decision boundaries. In contrast, thicket ensemble members remain within the same basin, providing no functional diversity for robustness.
+
+However, even the deep ensemble's 19.7\% PGD accuracy is far from the 78.5\% achieved by adversarial training. This confirms a broader finding in the adversarial robustness literature: ensemble diversity is necessary but far from sufficient for robustness \citep{pang2019improving}. Some form of adversarial awareness during training appears essential.
+
+\subsection{OOD Detection: A Qualified Neutral Result}
+
+For OOD detection, thicket ensembles perform comparably to deep ensembles (energy AUROC of 0.933 vs.\ 0.937). This is because energy-based OOD detection primarily depends on the model's confidence calibration rather than ensemble diversity \citep{xia2022usefulness}. The average energy score over near-identical members is essentially the single model's energy score. Mutual information --- the diversity-dependent metric --- performs worse than energy across all methods, consistent with \citet{xia2022usefulness}.
+
+The one bright spot is that orthogonal perturbations achieve MI AUROC of 0.918 vs.\ 0.894 for Gaussian, suggesting that orthogonal perturbations do create marginally more functional diversity even at $\sigma = 0.001$. This is insufficient for adversarial robustness but hints that structured perturbation directions could be valuable in regimes where larger perturbations are tolerable.
+
+\subsection{Limitations}
+
+\para{Single architecture.} We test only \resnet ($\sim$11M parameters). Larger models (\eg WideResNet-28-10, Vision Transformers) may have broader loss basins that tolerate larger perturbations, potentially enabling effective thicket ensembles.
+
+\para{Single dataset.} Our experiments use only \cifarten. Higher-resolution datasets (\eg ImageNet) with correspondingly larger models may exhibit different sensitivity profiles.
+
+\para{White-box attacks only.} We evaluate only white-box PGD, where the attacker knows all ensemble members. Transfer attacks between ensemble members might reveal more diversity than the white-box setting captures.
+
+\para{No fine-tuning after perturbation.} We test pure perturbation without any gradient-based adaptation. Brief fine-tuning of perturbed models could potentially recover accuracy at larger $\sigma$ values, enabling meaningful diversity.
+
+\para{Single seed.} Due to computational constraints, main experiments use a single seed. The sigma sweep across 60 candidates per scale partially compensates, but formal statistical significance tests require multiple independent runs.

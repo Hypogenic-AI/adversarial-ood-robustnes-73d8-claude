@@ -1,0 +1,11 @@
+PDF: papers/chen2023_split_ensemble_ood.pdf
+Total pages: 18
+Pages per chunk: 3
+
+Chunks:
+  chen2023_split_ensemble_ood_chunk_001.pdf: pages 1-3
+  chen2023_split_ensemble_ood_chunk_002.pdf: pages 4-6
+  chen2023_split_ensemble_ood_chunk_003.pdf: pages 7-9
+  chen2023_split_ensemble_ood_chunk_004.pdf: pages 10-12
+  chen2023_split_ensemble_ood_chunk_005.pdf: pages 13-15
+  chen2023_split_ensemble_ood_chunk_006.pdf: pages 16-18

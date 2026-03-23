@@ -1,0 +1,10 @@
+PDF: papers/croce2023_seasoning_model_soups_robustness.pdf
+Total pages: 13
+Pages per chunk: 3
+
+Chunks:
+  croce2023_seasoning_model_soups_robustness_chunk_001.pdf: pages 1-3
+  croce2023_seasoning_model_soups_robustness_chunk_002.pdf: pages 4-6
+  croce2023_seasoning_model_soups_robustness_chunk_003.pdf: pages 7-9
+  croce2023_seasoning_model_soups_robustness_chunk_004.pdf: pages 10-12
+  croce2023_seasoning_model_soups_robustness_chunk_005.pdf: page 13

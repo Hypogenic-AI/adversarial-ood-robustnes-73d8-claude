@@ -1,0 +1,849 @@
+You are an academic paper writer. Generate a complete NEURIPS style paper
+based on the experiment results provided.
+
+════════════════════════════════════════════════════════════════════════════════
+                         IMPORTANT: BEFORE YOU START
+════════════════════════════════════════════════════════════════════════════════
+
+Before writing any content, you MUST complete these steps:
+
+1. READ THE SKILL: Review the paper-writer skill at .claude/skills/paper-writer/SKILL.md
+2. READ THE STYLE GUIDE: Study templates/paper_writing/lab_style_guide.md carefully
+3. REVIEW EXAMPLES: Browse paper_examples/ for formatting and language patterns:
+   - Look at sections/1.introduction.tex for language style
+   - Look at tables/*.tex for table formatting
+   - Look at commands/*.tex for macro usage
+4. VERIFY COMMAND TEMPLATES: Command templates (math.tex, general.tex, macros.tex) are pre-copied to paper_draft/commands/
+
+CRITICAL: Reference example papers for FORMATTING and LANGUAGE STYLE only.
+Do NOT copy content, phrasing, or narrative structure from the example papers.
+The examples are in a different research domain - focus only on presentation style.
+
+════════════════════════════════════════════════════════════════════════════════
+                            EXPERIMENT REPORT
+════════════════════════════════════════════════════════════════════════════════
+
+# Probing the Limits: Adversarial and OOD Robustness of Neural Thicket Ensembles
+
+## 1. Executive Summary
+
+**Research question**: Do neural thicket ensembles — formed by random weight perturbations around a pretrained vision model — provide adversarial robustness or out-of-distribution detection capability?
+
+**Key finding**: Neural thicket ensembles in the vision domain (ResNet-18 on CIFAR-10) provide **no meaningful adversarial robustness** over a single model. The fundamental constraint is that vision models are extremely sensitive to weight perturbations: the perturbation scale must be kept very small (σ≤0.001) to preserve accuracy, but at that scale, ensemble members are nearly identical (disagreement rate &lt;1%), offering no diversity benefit. Structured perturbation strategies (orthogonal, layer-scaled) do not help. Adversarial training remains orders of magnitude more effective (78.5% vs. 12.5% PGD accuracy).
+
+**Practical implication**: The neural thicket phenomenon — dense clusters of task-solving experts around pretrained weights — may be specific to large language models with their massive overparameterization. Vision models with ~11M parameters (ResNet-18) have much tighter loss basins, making weight perturbation ensembles ineffective for robustness.
+
+## 2. Goal
+
+### Hypothesis
+While neural thicket ensembles improve robustness compared to single models, their vulnerability to adversarial and out-of-distribution inputs depends on the diversity and independence of the sampled experts. Explicitly encouraging diversity (via orthogonal perturbations or adversarially selected directions) will further enhance ensemble resilience.
+
+### Why This Matters
+Neural thickets (Gan &amp; Isola, 2026) demonstrated that random Gaussian perturbations around pretrained LLM weights can find task-specific expert solutions with O(1) training cost. If these ensembles are also robust, they offer an extremely cheap path to reliable AI systems. Understanding their robustness properties is critical before deployment.
+
+### Gap in Existing Work
+The Neural Thickets paper (arXiv:2603.12228) evaluated only clean accuracy on LLM reasoning tasks. No prior work has:
+1. Tested thicket ensembles against adversarial attacks
+2. Evaluated thicket ensembles for OOD detection
+3. Extended the concept to vision models (where robustness is better studied)
+4. Compared isotropic vs. structured perturbation strategies
+
+## 3. Data Construction
+
+### Datasets
+
+| Dataset | Role | Size | Source |
+|---------|------|------|--------|
+| CIFAR-10 | In-distribution | 50K train + 10K test (32×32 RGB) | torchvision |
+| SVHN | OOD benchmark | 26K test (32×32 RGB) | torchvision |
+
+### Preprocessing
+- Standard CIFAR-10 normalization: mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)
+- Training augmentation: random crop (32, padding=4), random horizontal flip
+- Train/val split: 45K/5K from training set; test set held out for final evaluation
+- SVHN normalized with same CIFAR-10 statistics for consistency
+
+## 4. Experiment Description
+
+### Methodology
+
+#### High-Level Approach
+We adapt the RandOpt/neural thicket concept from LLMs to vision: starting with a pretrained ResNet-18, we generate N=60 random weight perturbations at various scales σ, evaluate each on a validation set, select the top-K by accuracy, and ensemble their predictions via majority vote and average softmax. We then evaluate adversarial robustness (PGD-20, FGSM) and OOD detection (CIFAR-10 → SVHN).
+
+#### Why This Method?
+Vision models are the standard testbed for adversarial robustness, with well-established attack protocols and baselines. By transplanting neural thickets to vision, we can directly compare against adversarial training (PGD-AT), deep ensembles, and diversity-promoting methods from the literature.
+
+### Implementation Details
+
+#### Tools and Libraries
+| Library | Version |
+|---------|---------|
+| Python | 3.12.8 |
+| PyTorch | 2.6.0+cu124 |
+| torchvision | 0.21.0+cu124 |
+| NumPy | 2.2.6 |
+| scikit-learn | 1.8.0 |
+
+#### Hardware
+- 2× NVIDIA GeForce RTX 3090 (24GB each)
+- Batch size: 128
+
+#### Model Architecture
+ResNet-18 adapted for CIFAR-10 (3×3 initial conv, no max pool), ~11.2M parameters.
+
+#### Perturbation Strategies
+1. **Isotropic Gaussian**: θ&#39; = θ + σ·ε, ε ~ N(0, I)
+2. **Orthogonal**: Approximate Gram-Schmidt orthogonalization of perturbation directions
+3. **Layer-Scaled**: Perturbation magnitude scaled by each layer&#39;s weight norm: θ&#39;_l = θ_l + σ·||θ_l||/√d_l · ε_l
+
+#### Hyperparameters
+
+| Parameter | Value | Selection Method |
+|-----------|-------|------------------|
+| σ (perturbation scale) | {0.001, 0.005, 0.01, 0.02, 0.05} | Grid search |
+| N (perturbation pool) | 60 | Fixed |
+| K (ensemble size) | {3, 5, 10} | Ablation |
+| PGD ε | 8/255 | Standard CIFAR-10 |
+| PGD α (step size) | 2/255 | Standard |
+| PGD steps | 20 | Standard |
+| Training epochs | 50 (standard), 30 (AT) | Convergence |
+| Optimizer | SGD, lr=0.1, momentum=0.9, wd=5e-4 | Standard |
+| LR schedule | Cosine annealing | Standard |
+
+### Baselines
+1. **Single model**: Vanilla ResNet-18 (no perturbation)
+2. **Deep ensemble**: 3 independently trained ResNet-18s with different random seeds
+3. **Adversarial training (PGD-AT)**: ResNet-18 trained with 7-step PGD
+
+### Evaluation Metrics
+- **Clean accuracy**: Standard test accuracy
+- **PGD-20 robust accuracy**: Accuracy under 20-step PGD attack (ℓ∞, ε=8/255)
+- **FGSM robust accuracy**: Accuracy under single-step FGSM attack
+- **AUROC**: OOD detection (CIFAR-10 vs SVHN) — area under ROC curve
+- **FPR@95**: False positive rate at 95% true positive rate
+- **Disagreement rate**: Average pairwise prediction disagreement among ensemble members
+
+### Raw Results
+
+#### Adversarial Robustness
+
+| Method | Clean Acc (%) | PGD-20 Acc (%) | FGSM Acc (%) |
+|--------|:---:|:---:|:---:|
+| Single Model | 94.1 | 12.6 | 47.8 |
+| Gaussian Thicket (σ=0.001, K=5) | 94.0 | 12.5 | 47.4 |
+| Orthogonal Thicket (σ=0.001, K=5) | 94.0 | 12.4 | 47.2 |
+| Layer-Scaled Thicket (σ=0.001, K=5) | 94.1 | 12.6 | 47.8 |
+| Deep Ensemble (3 members) | **94.7** | 19.7 | 53.2 |
+| Adversarial Training (PGD-AT) | 91.2 | **78.5** | **79.7** |
+
+#### Sigma Sweep: Accuracy vs. Diversity Tradeoff
+
+| σ | Clean Acc (%) | Mean Candidate Acc (%) | Disagreement Rate |
+|---|:---:|:---:|:---:|
+| 0.001 | 94.0 | 94.1 | 0.006 |
+| 0.005 | 93.8 | 93.6 | 0.033 |
+| 0.01 | 92.4 | 89.9 | 0.091 |
+| 0.02 | 28.4 | 14.0 | 0.614 |
+| 0.05 | 11.7 | 10.2 | 0.830 |
+
+**Critical observation**: There is a sharp phase transition between σ=0.01 (92.4% accuracy) and σ=0.02 (28.4% accuracy). The model is catastrophically destroyed by perturbations of magnitude ~0.02, leaving no regime where both high accuracy AND high diversity can coexist.
+
+#### OOD Detection (CIFAR-10 → SVHN)
+
+| Method | MSP AUROC | Energy AUROC | MI AUROC | Energy FPR@95 |
+|--------|:---:|:---:|:---:|:---:|
+| Gaussian Thicket | 0.913 | 0.933 | 0.894 | 0.389 |
+| Orthogonal Thicket | 0.914 | 0.934 | **0.918** | 0.391 |
+| Layer-Scaled Thicket | 0.913 | 0.933 | 0.901 | 0.394 |
+| Deep Ensemble | **0.917** | **0.937** | 0.908 | **0.415** |
+
+#### Ensemble Size Ablation (σ=0.001)
+
+| K | Clean Acc (%) | PGD-20 Acc (%) |
+|---|:---:|:---:|
+| 3 | 94.0 | 12.5 |
+| 5 | 94.1 | 12.4 |
+| 10 | 94.0 | 12.4 |
+
+Increasing K has negligible effect — all members are too similar.
+
+### Visualizations
+
+Plots saved to `results/plots/`:
+- `sigma_sweep.png`: Accuracy vs. diversity tradeoff across σ values
+- `adversarial_robustness.png`: Bar chart comparing all methods on clean/PGD/FGSM
+- `ood_detection.png`: AUROC and FPR@95 for OOD detection
+- `k_ablation.png`: Effect of ensemble size K
+- `summary_heatmap.png`: Summary heatmap of all methods × metrics
+
+## 5. Result Analysis
+
+### Key Findings
+
+**1. Thicket ensembles provide zero adversarial robustness benefit in vision.**
+
+All three thicket variants (Gaussian, orthogonal, layer-scaled) achieve PGD accuracy within 0.2% of the single model (~12.5% vs 12.6%). This is because at σ=0.001 (the only viable scale), members have a disagreement rate of only 0.6%, meaning they are functionally identical copies. The white-box PGD attacker can trivially find adversarial examples that fool all members simultaneously.
+
+**2. Vision models have much tighter loss basins than LLMs.**
+
+A perturbation scale of σ=0.02 (approximately 2% of parameter magnitudes) completely destroys a ResNet-18, dropping accuracy from 94% to 28%. By contrast, the Neural Thickets paper shows LLMs tolerating much larger perturbations. This suggests the &#34;thicket&#34; phenomenon — dense solutions around pretrained weights — may be scale-dependent and more pronounced in overparameterized models with billions of parameters.
+
+**3. Deep ensembles provide modest robustness from true functional diversity.**
+
+The deep ensemble (3 independently trained models) achieved PGD accuracy of 19.7% vs. 12.6% for the single model — a 56% relative improvement. This comes from genuine functional diversity (different training trajectories explore different modes of the loss landscape), not from perturbation.
+
+**4. Adversarial training remains the gold standard.**
+
+PGD-AT achieves 78.5% robust accuracy, outperforming all ensemble approaches by a wide margin. No amount of ensemble diversity without adversarial-aware training can match explicit adversarial training.
+
+**5. OOD detection is a wash.**
+
+All ensemble methods achieve similar AUROC (~0.93 with energy score). The thicket ensembles perform comparably to the deep ensemble for OOD detection, but this is because OOD detection with energy scores primarily depends on the model&#39;s confidence calibration, not ensemble diversity. Mutual Information (the diversity-dependent metric) performs worse than energy across all methods, confirming Xia et al.&#39;s finding that ensemble diversity is not reliably useful for OOD detection.
+
+**6. Orthogonal perturbations show a slight MI advantage but no practical benefit.**
+
+The orthogonal thicket achieves MI AUROC of 0.918 vs. 0.894 for Gaussian — a noticeable improvement in the diversity-based OOD metric. This suggests orthogonal perturbations do create slightly more functional diversity. However, this doesn&#39;t translate to any adversarial robustness advantage.
+
+### Hypothesis Testing Results
+
+| Hypothesis | Result | Evidence |
+|------------|--------|----------|
+| H1: Thicket ensembles improve adversarial robustness | **Rejected** | PGD acc: 12.5% (thicket) vs. 12.6% (single) — no improvement |
+| H2: Orthogonal perturbations improve over Gaussian | **Rejected** for robustness | PGD acc identical; slight MI AUROC improvement for OOD |
+| H3: Thicket MI is useful for OOD detection | **Rejected** | MI AUROC (0.89-0.92) &lt; Energy AUROC (0.93) consistently |
+| H4: Optimal σ tradeoff exists | **Partially supported** | Sharp phase transition makes it more of a cliff than a tradeoff |
+
+### Surprises and Insights
+
+1. **The catastrophic sensitivity cliff**: We expected a gradual tradeoff between accuracy and diversity. Instead, there is a sharp phase transition — the model falls apart between σ=0.01 and σ=0.02 with no useful intermediate regime.
+
+2. **Layer-scaled perturbations don&#39;t help**: We hypothesized that adapting perturbation magnitude to each layer&#39;s scale would navigate the sensitivity problem. It performs identically to isotropic Gaussian — the sensitivity is uniform across layers.
+
+3. **Even the deep ensemble&#39;s robustness is modest**: 19.7% PGD accuracy is far from the 78.5% achieved by adversarial training. Diversity alone, even true mode diversity, is insufficient for strong robustness.
+
+### Limitations
+
+1. **Single architecture**: Only tested on ResNet-18. Larger models (ResNet-50, ViT) might have looser loss basins.
+2. **Single dataset**: CIFAR-10 only. Results may differ on higher-resolution datasets.
+3. **Single seed**: Due to computational constraints, main experiments used a single seed. The sigma sweep and multiple perturbation pools partially compensate.
+4. **White-box attack only**: We tested only white-box PGD (attacker knows ensemble). Transfer attacks between ensemble members might show more interesting results.
+5. **No fine-tuning of perturbed models**: We tested pure perturbation. Brief fine-tuning of perturbed models might enable larger σ values while maintaining accuracy.
+
+## 6. Conclusions
+
+### Summary
+Neural thicket ensembles — weight perturbations around a pretrained vision model — provide no adversarial robustness advantage in the vision domain (ResNet-18 on CIFAR-10). The fundamental constraint is that vision models have much tighter loss basins than LLMs: perturbation scales large enough to create functional diversity (σ≥0.02) catastrophically destroy model performance. At viable scales (σ≤0.001), ensemble members are near-clones with &lt;1% disagreement, offering no robustness benefit. Neither orthogonal nor layer-scaled perturbation strategies overcome this fundamental limitation. Adversarial training (78.5% PGD) remains vastly superior to any ensemble strategy (12-20% PGD).
+
+### Implications
+- **For practitioners**: Do not rely on weight-perturbation ensembles for adversarial robustness in vision. Use adversarial training or certified defenses.
+- **For the neural thickets research program**: The dense thicket phenomenon may be specific to heavily overparameterized models (billions of parameters). Vision models with ~10M parameters may simply not have enough parameter space to support diverse functional solutions within small perturbation neighborhoods.
+- **For ensemble robustness research**: True diversity (different training runs, different architectures) is necessary but not sufficient for adversarial robustness. Some form of adversarial awareness during training appears necessary.
+
+### Confidence in Findings
+High confidence in the negative result. The conclusion is robust because:
+1. We tested 5 σ values, 3 perturbation strategies, and 3 ensemble sizes
+2. The result is intuitive: near-clone models share attack surfaces
+3. Consistent with prior work showing ensemble diversity alone doesn&#39;t solve adversarial robustness
+
+## 7. Next Steps
+
+### Immediate Follow-ups
+1. **Test with larger models**: ResNet-50, WideResNet-28-10, or Vision Transformers may have looser basins
+2. **Fine-tune perturbed models**: Allow brief training after perturbation to find nearby functional solutions at larger σ
+3. **Transfer attacks**: Test whether perturbation increases diversity against black-box/transfer attacks (even if not white-box)
+
+### Alternative Approaches
+1. **Adversarial perturbation directions**: Instead of random, perturb in directions that maximize prediction diversity on a holdout set
+2. **Hybrid approach**: Combine thicket perturbation with adversarial training — perturb an adversarially-trained base model
+3. **Feature-space thickets**: Perturb only the final classifier layer (which is more linear and may tolerate larger perturbations)
+
+### Broader Extensions
+- Test on LLMs directly (the original thicket domain) for adversarial prompt robustness
+- Explore whether the thicket density metric (solution density δ) correlates with robustness across model scales
+
+### Open Questions
+1. At what model scale does the &#34;thicket&#34; become dense enough for perturbation-based ensembles to provide robustness?
+2. Is there a structured perturbation direction (e.g., along the loss Hessian&#39;s low-curvature directions) that maintains accuracy while increasing diversity?
+3. Can neural thicket diversity help against distribution shift (not adversarial, but natural)?
+
+## References
+
+1. Gan, Y. &amp; Isola, P. (2026). Neural Thickets: Diverse Task Experts Are Dense Around Pretrained Weights. arXiv:2603.12228.
+2. Pang, T. et al. (2019). Improving Adversarial Robustness via Promoting Ensemble Diversity. ICML 2019.
+3. Xia, G. &amp; Bouganis, C. (2022). On the Usefulness of Deep Ensemble Diversity for OOD Detection. UNCV-W 2022.
+4. Croce, F. et al. (2023). Seasoning Model Soups for Robustness. CVPR 2023.
+5. Fort, S. et al. (2019). Deep Ensembles: A Loss Landscape Perspective. NeurIPS 2019.
+6. Chen, A., Yang, H., Gan, Y. et al. (2024). Split-Ensemble: Efficient OOD-aware Ensemble. ICML 2024.
+
+
+════════════════════════════════════════════════════════════════════════════════
+                            RESEARCH PLAN
+════════════════════════════════════════════════════════════════════════════════
+
+# Research Plan: Probing the Limits — Adversarial and OOD Robustness of Neural Thicket Ensembles
+
+## Motivation &amp; Novelty Assessment
+
+### Why This Research Matters
+Neural thickets (Gan &amp; Isola, 2026) reveal that pretrained models are surrounded by dense clusters of task-specific expert solutions reachable via simple random perturbations. If these ensembles are robust to adversarial attacks and out-of-distribution (OOD) inputs, they offer a remarkably cheap alternative to adversarial training or expensive deep ensembles. Understanding their failure modes is critical before deployment.
+
+### Gap in Existing Work
+The Neural Thickets paper evaluates only clean accuracy on LLM reasoning tasks. No prior work has:
+1. Tested thicket ensembles against adversarial attacks (PGD, FGSM)
+2. Evaluated thicket ensembles for OOD detection
+3. Extended the thicket concept to vision models (where adversarial robustness is better studied)
+4. Compared isotropic vs. structured perturbation strategies for ensemble diversity
+
+### Our Novel Contribution
+We transplant the neural thicket ensemble concept to vision (ResNet on CIFAR-10), then systematically evaluate:
+- Adversarial robustness under white-box PGD and FGSM attacks
+- OOD detection (CIFAR-10 → SVHN) using ensemble uncertainty
+- Whether diversity-encouraging perturbation strategies (orthogonal, adversarial directions) improve robustness beyond random Gaussian perturbations
+
+### Experiment Justification
+- **Exp 1 (Baseline training)**: Need a well-trained single model as the &#34;center&#34; of the thicket
+- **Exp 2 (Thicket construction)**: Test whether random weight perturbations yield diverse, functional ensemble members in the vision domain
+- **Exp 3 (Adversarial robustness)**: Core test — does the thicket ensemble resist PGD/FGSM better than a single model?
+- **Exp 4 (Perturbation strategies)**: Test the hypothesis that orthogonal/structured perturbations improve diversity and thus robustness
+- **Exp 5 (OOD detection)**: Test whether thicket ensemble disagreement signals OOD inputs
+- **Exp 6 (Ablations)**: How do ensemble size K and perturbation scale σ affect results?
+
+## Research Question
+Does the natural diversity of neural thicket ensembles (random weight perturbations around a pretrained model) confer adversarial and OOD robustness in vision tasks? Can structured perturbation strategies further improve resilience?
+
+## Hypothesis Decomposition
+1. **H1**: Thicket ensembles achieve higher adversarial robustness than a single model (majority vote filters out per-member adversarial errors)
+2. **H2**: Thicket ensembles with orthogonal perturbations are more robust than those with isotropic Gaussian perturbations (greater functional diversity)
+3. **H3**: Thicket ensemble disagreement (mutual information) is a useful OOD detector
+4. **H4**: There exists an optimal perturbation scale σ that trades off clean accuracy vs. robustness
+
+## Proposed Methodology
+
+### Approach
+Adapt the RandOpt/thicket concept to vision: start with a pretrained ResNet-18 on CIFAR-10, generate N=100 weight perturbations at various scales, select top-K=10 by validation accuracy, ensemble predictions via majority vote. Compare perturbation strategies and evaluate under attack.
+
+### Experimental Steps
+1. Train a ResNet-18 on CIFAR-10 to ~93%+ accuracy (or use a pretrained checkpoint)
+2. Generate perturbed models: θ&#39; = θ + σ·ε where ε is drawn from different distributions
+   - Isotropic Gaussian (baseline thicket)
+   - Orthogonal perturbations (Gram-Schmidt on random directions)
+   - Adversarial perturbation directions (maximize loss diversity)
+3. Select top-K by validation accuracy → form ensembles
+4. Evaluate clean accuracy of all ensembles
+5. Attack with PGD (ℓ∞, ε=8/255) and FGSM — measure robust accuracy
+6. OOD detection: compute ensemble uncertainty on CIFAR-10 test vs. SVHN, measure AUROC
+7. Ablate over K ∈ {3, 5, 10} and σ ∈ {0.001, 0.005, 0.01, 0.05}
+
+### Baselines
+1. **Single model** (no perturbation) — lower bound
+2. **Random Gaussian thicket ensemble** — vanilla thicket
+3. **Deep ensemble** (3 independently trained ResNet-18s) — upper bound for diversity
+4. **Adversarial training** (PGD-AT) single model — gold standard for robustness
+
+### Evaluation Metrics
+- **Clean accuracy**: Standard test accuracy
+- **Robust accuracy**: Accuracy under PGD-20 (ε=8/255, step=2/255) and FGSM
+- **AUROC**: OOD detection (CIFAR-10 vs SVHN) using max softmax prob, energy score, and mutual information
+- **FPR@95**: False positive rate at 95% true positive rate for OOD
+- **Ensemble disagreement**: Average pairwise disagreement rate among members
+
+### Statistical Analysis Plan
+- Report mean ± std over 3 random seeds for all metrics
+- Paired t-tests comparing thicket ensemble vs. single model robustness
+- Effect size (Cohen&#39;s d) for robustness improvements
+- Significance level α = 0.05
+
+## Expected Outcomes
+- H1 supported: Thicket ensembles should improve robust accuracy by 2-10% over single model
+- H2 partially supported: Orthogonal perturbations may help but effect may be small if thicket diversity is already high
+- H3 mixed: Based on Xia et al., MI may not help; averaged energy scores likely better
+- H4 supported: Very small σ → too similar members; very large σ → members too degraded
+
+## Timeline and Milestones
+1. Environment setup + base model training: ~15 min
+2. Thicket construction + perturbation strategies: ~20 min
+3. Adversarial evaluation: ~30 min
+4. OOD evaluation: ~15 min
+5. Ablations: ~20 min
+6. Analysis + documentation: ~30 min
+
+## Potential Challenges
+- Weight perturbations may completely destroy model performance in vision (unlike LLMs which are over-parameterized)
+- Need to find the right σ scale for ResNet-18 on CIFAR-10
+- PGD attack on ensemble is computationally expensive
+- If perturbations don&#39;t yield functional models, will reduce σ or perturb only specific layers
+
+## Success Criteria
+- Complete evaluation of thicket ensembles under adversarial + OOD conditions
+- Clear comparison showing whether diversity helps or not
+- Identification of optimal perturbation strategy and scale
+- Actionable recommendations for practitioners
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          LITERATURE REVIEW
+════════════════════════════════════════════════════════════════════════════════
+
+# Literature Review: Adversarial and OOD Robustness of Neural Thicket Ensembles
+
+## Research Area Overview
+
+This review covers the intersection of three research areas: (1) **Neural Thickets** — the recently discovered phenomenon that pretrained model weights are surrounded by dense, diverse task-specific experts; (2) **Adversarial robustness of ensembles** — how ensemble diversity affects resilience to adversarial attacks; and (3) **Out-of-distribution (OOD) detection with ensembles** — leveraging ensemble disagreement/diversity for detecting distributional shift.
+
+The central research hypothesis is that neural thicket ensembles (formed by randomly sampling weight perturbations around pretrained weights) improve robustness compared to single models, but their vulnerability to adversarial and OOD inputs depends on the diversity and independence of the sampled experts. Explicitly encouraging diversity (e.g., via orthogonal perturbations) should further enhance resilience.
+
+---
+
+## Key Papers
+
+### 1. Neural Thickets: Diverse Task Experts Are Dense Around Pretrained Weights
+- **Authors**: Yulu Gan, Phillip Isola (MIT CSAIL)
+- **Year**: 2026
+- **Source**: arXiv:2603.12228
+- **Key Contribution**: Discovers that large pretrained models are surrounded by a dense &#34;thicket&#34; of task-specific expert solutions in weight space. Random Gaussian perturbations of pretrained weights can find task-improving specialists.
+- **Methodology**:
+  - **RandOpt algorithm**: Sample N random weight perturbations θ&#39; = θ + σ·ε(s), evaluate each on a training set, select top-K, ensemble predictions via majority vote.
+  - Measures **solution density** δ(m) — fraction of random perturbations that improve performance by margin m.
+  - Measures **solution diversity** via Spectral Discordance D — correlation structure across tasks shows specialists, not generalists.
+- **Datasets Used**: GSM8K, MATH-500, OlympiadBench, Countdown, MBPP, ROCStories, USPTO, GQA
+- **Models**: Qwen2.5 (0.5B-32B), Llama3.1-8B, OLMo3-7B
+- **Results**:
+  - Solution density scales with model size (larger models → denser thickets)
+  - Spectral discordance increases with scale (more diverse specialists)
+  - RandOpt (K=50) competitive with PPO, GRPO, ES under same training FLOPs
+  - O(1) training time (fully parallel)
+  - Distillation can compress ensemble to single model
+- **Code Available**: https://github.com/sunrainyg/RandOpt
+- **Relevance**: THE core paper. Establishes the neural thicket phenomenon. Our research probes whether these thicket ensembles are robust to adversarial/OOD inputs, and whether diversity-encouraging sampling improves robustness.
+- **Limitations noted**:
+  - Only tested on tasks with categorical/integer answers (majority vote)
+  - No adversarial robustness evaluation
+  - No OOD detection evaluation
+  - Perturbations are isotropic Gaussian — no exploration of structured/directed perturbations
+
+### 2. Improving Adversarial Robustness via Promoting Ensemble Diversity (ADP)
+- **Authors**: Tianyu Pang, Kun Xu, Chao Du, Ning Chen, Jun Zhu (Tsinghua)
+- **Year**: 2019
+- **Source**: ICML 2019, arXiv:1901.08846
+- **Key Contribution**: Defines ensemble diversity in the adversarial setting as diversity among *non-maximal* predictions. Proposes Adaptive Diversity Promoting (ADP) regularizer.
+- **Methodology**:
+  - ADP regularizer = log-ensemble-diversity (LED) + ensemble entropy
+  - Encourages non-maximal predictions to be mutually orthogonal across ensemble members
+  - Simultaneous training of all members
+  - Diversity reduces adversarial transferability between members
+- **Datasets Used**: MNIST, CIFAR-10, CIFAR-100
+- **Attacks tested**: FGSM, BIM, PGD, MIM, JSMA, C&amp;W, EAD
+- **Results**: Significantly improves adversarial robustness while maintaining clean accuracy
+- **Code Available**: https://github.com/P2333/Adaptive-Diversity-Promoting
+- **Relevance**: Directly relevant — shows that promoting ensemble diversity improves adversarial robustness. Key question: does the *natural* diversity of neural thicket ensembles achieve similar benefits? Can ADP-style regularization be applied to thicket sampling?
+
+### 3. Split-Ensemble: Efficient OOD-aware Ensemble via Task and Model Splitting
+- **Authors**: Anthony Chen*, Huanrui Yang*, **Yulu Gan** (same author as Neural Thickets!), et al.
+- **Year**: 2024
+- **Source**: ICML 2024, arXiv:2312.09148
+- **Key Contribution**: Splits classification task into complementary subtasks; each submodel treats other subtasks&#39; data as OOD proxy. Tree-like architecture with shared low-level features.
+- **Methodology**:
+  - Subtask splitting based on feature similarity
+  - OOD-aware training without external OOD data
+  - Iterative splitting and pruning for efficient architecture
+- **Datasets Used**: CIFAR-10, CIFAR-100, Tiny-ImageNet (ID); SVHN, LSUN, iSUN, Textures, Places365 (OOD)
+- **Results**: +0.8%, +1.8%, +25.5% accuracy improvement on CIFAR-10/100/TinyImageNet. OOD detection improves by 2.2-29.6% AUROC over single model.
+- **Relevance**: Same first author as Neural Thickets. Shows how ensemble diversity can be engineered for OOD detection. The subtask splitting concept could inspire diversity-encouraging strategies for thicket ensembles.
+
+### 4. Seasoning Model Soups for Robustness to Adversarial and Natural Distribution Shifts
+- **Authors**: Francesco Croce, Sylvestre-Alvise Rebuffi, Evan Shelhamer, Sven Gowal (DeepMind)
+- **Year**: 2023
+- **Source**: CVPR 2023, arXiv:2302.10164
+- **Key Contribution**: Shows that linear combinations of adversarially-trained model parameters (model soups) can smoothly trade off robustness to different ℓp-norm adversaries.
+- **Methodology**:
+  - Pre-train single robust model → fine-tune to different threat models
+  - Create soups: θ^w = Σ w_i · θ^i (convex or extrapolated combinations)
+  - Adapt to unseen shifts with few examples by tuning soup weights
+- **Datasets Used**: CIFAR-10, ImageNet (with ℓ∞, ℓ2, ℓ1 attacks)
+- **Results**: Competitive with multi-norm adversarial training; can control robustness level without retraining; adaptation to distribution shifts from few examples
+- **Relevance**: Model soups operate in the same weight-space interpolation paradigm as neural thickets. Shows that weight-space ensembling can achieve multi-threat robustness. Key parallel: thicket perturbations are random directions in weight space; model soups use structured directions (fine-tuned models).
+
+### 5. On the Usefulness of Deep Ensemble Diversity for Out-of-Distribution Detection
+- **Authors**: Guoxuan Xia, Christos-Savvas Bouganis (Imperial College London)
+- **Year**: 2022
+- **Source**: UNCV-W 2022, arXiv:2207.07517
+- **Key Contribution**: Shows that ensemble diversity (Mutual Information) is NOT reliably useful for OOD detection at ImageNet scale. Proposes averaging task-specific scores (e.g., Energy) over ensemble instead.
+- **Methodology**:
+  - Decomposes ensemble uncertainty: Total = Average + Diversity (MI)
+  - MI performs 30-40% worse than single-model entropy on some OOD datasets
+  - Alternative: average Energy score over ensemble members
+- **Datasets Used**: ImageNet-200 (ID); Near-ImageNet-200, Caltech-45, Openimage-O, iNaturalist, Textures, Colorectal, Colonoscopy, ImageNet-O (OOD)
+- **Code Available**: https://github.com/Guoxoug/ens-div-ood-detect
+- **Relevance**: Critical counterpoint — ensemble diversity alone may not help OOD detection. For thicket ensembles, the *type* of diversity matters. MI fails because average uncertainty already separates ID/OOD well. Exception: MI works on adversarially-constructed ImageNet-O, suggesting diversity IS useful against adversarial-style OOD.
+
+### 6. Ensemble Adversarial Defense via Multiple Dispersed Low Curvature Models
+- **Authors**: Kaikang Zhao, Xi Chen, Wei Huang
+- **Year**: 2024
+- **Source**: arXiv:2403.16405
+- **Key Contribution**: Integration of diverse low-curvature models for ensemble adversarial defense. Diversity among sub-models increases attack cost.
+- **Relevance**: Shows that diversity + flatness of loss landscape improves ensemble robustness. Thickets exist in flat basins — connection to this work.
+
+### 7. MEAT: Median-Ensemble Adversarial Training
+- **Authors**: Zhaozhe Hu, Jia-Li Yin, Bin Chen
+- **Year**: 2024
+- **Source**: arXiv:2406.14259
+- **Key Contribution**: Uses median (rather than mean) for weight averaging in self-ensemble adversarial training, improving robustness and generalization.
+- **Relevance**: Alternative ensembling strategies beyond majority vote — applicable to how thicket experts are combined.
+
+### 8. Deep Ensembles: A Loss Landscape Perspective
+- **Authors**: Stanislav Fort, Huiyi Hu, Balaji Lakshminarayanan
+- **Year**: 2019
+- **Source**: NeurIPS 2019, arXiv:1912.02757
+- **Key Contribution**: Shows deep ensembles explore different modes of the loss landscape; functional diversity arises from mode diversity.
+- **Relevance**: Theoretical foundation — thicket perturbations may or may not access different modes. If perturbations stay within one mode, diversity may be limited.
+
+### 9. DICE: Diversity in Deep Ensembles via Conditional Redundancy Adversarial Estimation
+- **Authors**: Alexandre Ramé, Matthieu Cord
+- **Year**: 2021
+- **Source**: arXiv:2101.05544
+- **Key Contribution**: Regularizes ensemble predictions to increase diversity while maintaining accuracy using adversarial estimation of conditional redundancy.
+- **Relevance**: Another diversity-promoting method for ensembles — could be applied to thicket expert selection.
+
+### 10. Diverse Weight Averaging for Out-of-Distribution Generalization
+- **Authors**: Alexandre Ramé et al.
+- **Year**: 2022
+- **Source**: NeurIPS 2022, arXiv:2205.09739
+- **Key Contribution**: Averages weights of diverse models for OOD generalization. Shows weight-space diversity translates to functional diversity.
+- **Relevance**: Weight averaging (like thicket ensembles) can improve OOD generalization.
+
+### 11. Sharpness-diversity tradeoff: SharpBalance
+- **Authors**: Haiquan Lu et al.
+- **Year**: 2024
+- **Source**: arXiv:2407.12996
+- **Key Contribution**: Identifies tradeoff between sharpness of individual learners and diversity of ensemble. Proposes SharpBalance to navigate this.
+- **Relevance**: Thicket perturbation scale σ may affect this tradeoff — larger σ → more diversity but potentially sharper minima.
+
+---
+
+## Common Methodologies
+
+### Ensemble Construction
+- **Independent training**: Train members separately (Deep Ensembles)
+- **Simultaneous training with diversity regularization**: ADP, DICE
+- **Weight-space perturbation**: RandOpt/Neural Thickets, Bayesian NNs
+- **Weight-space interpolation**: Model Soups, Diverse Weight Averaging
+- **Architecture splitting**: Split-Ensemble
+
+### Adversarial Attack Methods
+- White-box: PGD, AutoPGD, C&amp;W
+- Black-box/transfer: FGSM, MIM
+- Multi-norm: ℓ∞, ℓ2, ℓ1 bounded
+
+### OOD Detection Metrics
+- AUROC, FPR@95 (standard binary classification metrics)
+- Uncertainty scores: Entropy, Energy, Maximum Softmax Probability (MSP), Mutual Information
+
+---
+
+## Standard Baselines
+- **Single model** (no ensemble)
+- **Deep Ensemble** (independently trained members, averaged predictions)
+- **Adversarial training** (PGD-AT) for robustness baselines
+- **Model Soups** for weight-space interpolation baselines
+- **ADP** for diversity-promoting ensemble baseline
+
+## Evaluation Metrics
+- **Clean accuracy**: Standard test accuracy without perturbation
+- **Robust accuracy**: Accuracy under adversarial attack (PGD, AutoPGD)
+- **AUROC/FPR@95**: OOD detection performance
+- **Spectral Discordance**: Diversity measure from Neural Thickets paper
+- **Mutual Information**: Ensemble disagreement measure
+
+## Datasets in the Literature
+- **CIFAR-10**: Used by ADP, Split-Ensemble, Model Soups, SharpBalance (most common)
+- **CIFAR-100**: Used by ADP, Split-Ensemble, diversity regularization papers
+- **ImageNet/variants**: Used by Model Soups, Xia et al., for large-scale evaluation
+- **SVHN**: Common OOD dataset when CIFAR is ID
+- **GSM8K, MATH-500, Countdown**: Used by Neural Thickets (LLM reasoning tasks)
+
+---
+
+## Gaps and Opportunities
+
+1. **No adversarial evaluation of neural thickets**: The Neural Thickets paper evaluates accuracy but never tests robustness to adversarial attacks. This is the primary gap.
+
+2. **No OOD evaluation of neural thickets**: Similarly, no evaluation of whether thicket ensembles can detect OOD inputs.
+
+3. **Isotropic vs. structured perturbations**: Neural Thickets uses isotropic Gaussian noise. The hypothesis that orthogonal/adversarial perturbation directions improve diversity is untested.
+
+4. **Vision domain gap**: Neural Thickets focuses on LLMs; extending to vision models (where adversarial robustness is better studied) would enable direct comparison with ADP, Model Soups, etc.
+
+5. **Diversity-robustness relationship**: The relationship between spectral discordance (diversity metric from Neural Thickets) and adversarial/OOD robustness is unexplored.
+
+6. **Selection strategies**: Top-K selection in RandOpt is based on task performance; selecting for diversity or robustness could yield different ensemble properties.
+
+---
+
+## Recommendations for Our Experiment
+
+### Recommended Datasets
+1. **CIFAR-10** (primary): Most well-studied for adversarial robustness; enables direct comparison with ADP, Model Soups baselines
+2. **CIFAR-100** (secondary): More classes → richer diversity structure
+3. **SVHN** (OOD benchmark): Standard OOD dataset when CIFAR is ID
+
+### Recommended Baselines
+1. **Single pretrained model** (no perturbation)
+2. **Deep Ensemble** (independently trained from different initializations)
+3. **RandOpt** (random Gaussian perturbations, top-K, majority vote) — the vanilla thicket ensemble
+4. **ADP ensemble** (diversity-promoting training)
+5. **Adversarial training** (PGD-AT) single model
+
+### Recommended Metrics
+1. Clean accuracy
+2. Robust accuracy under PGD attack (ℓ∞, ε=8/255 for CIFAR)
+3. AUROC and FPR@95 for OOD detection (CIFAR→SVHN)
+4. Spectral Discordance (diversity measure)
+5. Ensemble disagreement / Mutual Information
+
+### Methodological Considerations
+- Use pretrained vision models (e.g., ResNet-18/50 pretrained on CIFAR or ImageNet) as the base for thicket sampling
+- Compare isotropic Gaussian perturbations vs. orthogonal perturbations vs. adversarially-selected perturbation directions
+- Measure how perturbation scale σ affects the diversity-robustness tradeoff
+- Test both white-box (all ensemble members known) and transfer attacks
+- For OOD, test both diversity-based scores (MI) and averaging-based scores (mean Energy)
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          PAPER REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+Generate a complete academic paper with the following structure:
+
+1. TITLE
+   - Clear, specific, informative
+   - Should convey main finding or contribution
+
+2. AUTHOR
+   - Use this exact author line in the \author{} block: NeuriCo
+
+3. ABSTRACT (150-250 words)
+   - Problem statement
+   - Approach
+   - Key results
+   - Significance
+
+4. INTRODUCTION
+   - Research problem and motivation
+   - Gap in existing work
+   - Our contribution (be specific)
+   - Paper organization
+
+5. RELATED WORK
+   - Organized by theme/approach
+   - Position our work relative to prior work
+   - Cite papers from literature review
+
+6. METHODOLOGY
+   - Clear description of approach
+   - Experimental setup
+   - Datasets used
+   - Evaluation metrics
+   - Baselines
+
+7. RESULTS
+   - Present results with tables and figures
+   - Statistical analysis
+   - Comparison to baselines
+   - Ablation studies (if applicable)
+
+8. DISCUSSION
+   - Interpretation of results
+   - Limitations
+   - Broader implications
+
+9. CONCLUSION
+   - Summary of contributions
+   - Key findings
+   - Future work
+
+10. REFERENCES
+   - BibTeX format
+   - All cited papers
+
+════════════════════════════════════════════════════════════════════════════════
+                          OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════════════
+
+Create a MODULAR LaTeX project with the following directory structure:
+
+paper_draft/
+├── main.tex              # Main file that imports all sections
+├── references.bib        # BibTeX references
+├── sections/
+│   ├── abstract.tex      # Abstract content
+│   ├── introduction.tex  # Introduction section
+│   ├── related_work.tex  # Related work section
+│   ├── methodology.tex   # Methodology section
+│   ├── results.tex       # Results section
+│   ├── discussion.tex    # Discussion section
+│   └── conclusion.tex    # Conclusion section
+├── figures/              # Directory for any generated figures
+├── tables/               # Directory for complex standalone tables
+└── appendix/             # Directory for appendix sections (if needed)
+
+INSTRUCTIONS:
+1. First, create the directory structure above (mkdir -p paper_draft/sections paper_draft/figures paper_draft/tables paper_draft/appendix)
+2. Write main.tex using the EXACT preamble for NEURIPS:
+
+   \documentclass{article}
+   \usepackage[final]{neurips_2025}  % NEURIPS style (neurips_2025.sty is in paper_draft/)
+   \usepackage[hidelinks]{hyperref}  % REQUIRED: clickable links
+   \usepackage{booktabs}  % REQUIRED: professional tables
+   \usepackage{graphicx}
+   \usepackage{amsmath,amssymb}
+
+   % Import command files
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+   % Use this bibliography style:
+   \bibliographystyle{plainnat}
+
+   \author{NeuriCo}
+
+   - Use \input{sections/...} to include each section
+   - Use \bibliography{references} for references
+3. Write each section file with COMPLETE content (no placeholders)
+4. Each section file should include its \section{} command
+5. Write references.bib with all citations in BibTeX format
+6. After writing all files, compile the paper:
+   cd paper_draft && pdflatex -interaction=nonstopmode main.tex && bibtex main && pdflatex -interaction=nonstopmode main.tex && pdflatex -interaction=nonstopmode main.tex
+
+This modular structure allows humans to easily:
+- Edit individual sections without navigating a large file
+- Track changes per section
+- Reuse sections across different paper versions
+
+════════════════════════════════════════════════════════════════════════════════
+                          QUALITY REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+- Academic tone throughout
+- All claims must be supported by data from the experiment report
+- Proper citations using \cite{} commands
+- Clear figures and tables with proper captions
+- NO placeholder text - every section must have real content
+- The paper MUST compile without errors
+- If compilation fails, debug and fix the LaTeX errors
+
+════════════════════════════════════════════════════════════════════════════════
+                          LAB WRITING STYLE
+════════════════════════════════════════════════════════════════════════════════
+
+Follow these lab-specific conventions to match our paper style:
+
+1. LANGUAGE STYLE:
+   - Use active voice: "We propose", "We examine", "We focus on"
+   - Be direct and confident: "Our main question is...", "We hypothesize that..."
+   - State things clearly and simply - prefer plain language over jargon
+   - Use bold questions as paragraph organizers: {\bf what is X?}
+   - Include specific quantitative claims: "8.97% over baseline"
+   - Avoid fancy wording: "utilize" → "use", "facilitate" → "help"
+
+2. INTRODUCTION STRUCTURE:
+   - Engaging hook (get to the point quickly)
+   - Problem importance
+   - Gap identification
+   - Your approach with method figure reference
+   - Quantitative preview of results
+   - Contribution bullets (3-4 items, action verbs)
+
+3. CONTRIBUTION LISTS:
+   \begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+       \item We propose...
+       \item We conduct...
+       \item We complement...
+   \end{itemize}
+
+4. MODULAR COMMANDS STRUCTURE:
+   Command templates are pre-copied to paper_draft/commands/:
+   - math.tex: Math notation macros
+   - general.tex: Formatting macros
+   - macros.tex: Project-specific term definitions (customize this for your paper)
+
+   In main.tex, include:
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+5. REFERENCE CONVENTIONS:
+   Use reference macros from math.tex:
+   - \figref{fig:name} for "figure 1" (lowercase, in-sentence)
+   - \Figref{fig:name} for "Figure 1" (capitalized, start of sentence)
+   - \secref{sec:name} for "section 2"
+
+6. TEXT FORMATTING:
+   - Use \para{Header text} for bold paragraph headers
+   - Define method/dataset names with \textsc and \xspace:
+     \newcommand{\methodname}{\textsc{MethodName}\xspace}
+
+7. TABLE FORMATTING:
+   - Use booktabs package (no vertical lines)
+   - Use \resizebox{\textwidth}{!}{...} for wide tables
+   - Use @{} to remove padding at table edges
+   - Use \cmidrule(lr){x-y} for sub-headers
+   - Use \textsc{} for dataset/method names in headers
+   - Bold best results with {\bf ...}
+
+8. FIGURE FORMATTING:
+   - Use 0.32\textwidth for 3-column subfigures
+   - Use 0.95\linewidth for full-width figures
+   - Use \input{figures/legend} for shared legends
+   - Write self-contained captions explaining key observations
+
+9. RESULTS PRESENTATION:
+   - Define \increase and \decrease for colored arrows (green up, red down)
+   - Bold best results in tables
+   - Report confidence intervals when available
+
+10. ALGORITHM STYLING:
+    - Use algpseudocode with [noend]
+    - Use \triangleright for comments
+
+11. HYPERLINKS (REQUIRED):
+    - Always use \usepackage[hidelinks]{hyperref} or with colored links
+    - All citations, section refs, figure refs, table refs must be clickable
+    - This is essential for reader navigation
+
+════════════════════════════════════════════════════════════════════════════════
+                          WORKFLOW: REVIEW AND REFLECT
+════════════════════════════════════════════════════════════════════════════════
+
+Before calling finish, you MUST complete these review steps:
+
+1. REVIEW RESOURCES (at the start):
+   - Read .claude/skills/paper-writer/SKILL.md for detailed guidance
+   - Study templates/paper_writing/lab_style_guide.md for style conventions
+   - Browse paper_examples/ for formatting and language patterns
+
+2. SELF-REFLECTION (before finishing):
+   After writing all sections, review your work against these criteria:
+
+   LANGUAGE CHECK:
+   - [ ] Is the writing clear and jargon-free?
+   - [ ] Are claims specific with quantitative support?
+   - [ ] Is active voice used throughout?
+
+   FORMATTING CHECK:
+   - [ ] Does main.tex include \input{commands/math}, \input{commands/general}, \input{commands/macros}?
+   - [ ] Is hyperref package included for clickable references?
+   - [ ] Do tables use booktabs (no vertical lines)?
+   - [ ] Are best results bolded in tables?
+   - [ ] Are figures/tables properly captioned?
+
+   STRUCTURE CHECK:
+   - [ ] Does introduction follow: hook → importance → gap → approach → preview → contributions?
+   - [ ] Are contribution bullets specific with action verbs?
+   - [ ] Does the paper compile without errors?
+
+3. FIX ISSUES:
+   - Address any issues found in the self-reflection
+   - Re-compile and verify the PDF looks correct
+
+Only after completing this review should you consider the paper finished.
